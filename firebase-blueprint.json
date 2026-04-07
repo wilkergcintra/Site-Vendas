@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "usuarios": {
+      "title": "Usuário",
+      "description": "Dados do cliente ou administrador",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["cliente", "admin"] },
+        "criado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nome", "email", "role"]
+    },
+    "produtos": {
+      "title": "Produto",
+      "description": "Informações do calçado",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "slug": { "type": "string" },
+        "descricao": { "type": "string" },
+        "categoria": { "type": "string" },
+        "genero": { "type": "string", "enum": ["masculino", "feminino", "unissex"] },
+        "preco": { "type": "number" },
+        "preco_promocional": { "type": "number" },
+        "peso": { "type": "number" },
+        "dimensoes": { "type": "object" },
+        "ativo": { "type": "boolean" },
+        "criado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nome", "slug", "preco", "ativo"]
+    },
+    "variacoes": {
+      "title": "Variação de Produto",
+      "description": "Tamanho e cor de um produto específico",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "produto_id": { "type": "string" },
+        "tamanho": { "type": "string" },
+        "cor": { "type": "string" },
+        "estoque": { "type": "integer" },
+        "sku": { "type": "string" }
+      },
+      "required": ["id", "produto_id", "tamanho", "cor", "estoque"]
+    },
+    "pedidos": {
+      "title": "Pedido",
+      "description": "Registro de compra",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "usuario_id": { "type": "string" },
+        "status": { "type": "string", "enum": ["aguardando", "pago", "enviado", "entregue", "cancelado"] },
+        "total": { "type": "number" },
+        "frete_valor": { "type": "number" },
+        "frete_modalidade": { "type": "string" },
+        "codigo_rastreamento": { "type": "string" },
+        "payment_id": { "type": "string" },
+        "criado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "usuario_id", "status", "total"]
+    },
+    "banners": {
+      "title": "Banner",
+      "description": "Banner rotativo da página inicial",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "imagem_url": { "type": "string" },
+        "link": { "type": "string" },
+        "titulo": { "type": "string" },
+        "subtitulo": { "type": "string" },
+        "ordem": { "type": "integer" },
+        "ativo": { "type": "boolean" },
+        "criado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "imagem_url", "ordem", "ativo"]
+    },
+    "menus": {
+      "title": "Item de Menu",
+      "description": "Navegação principal do site",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "url": { "type": "string" },
+        "parentId": { "type": "string", "description": "ID do menu pai para submenus" },
+        "ordem": { "type": "integer" },
+        "ativo": { "type": "boolean" },
+        "criado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "label", "url", "ordem", "ativo"]
+    }
+  },
+  "firestore": {
+    "/usuarios/{userId}": {
+      "schema": "usuarios",
+      "description": "Coleção de usuários"
+    },
+    "/produtos/{produtoId}": {
+      "schema": "produtos",
+      "description": "Coleção de produtos"
+    },
+    "/produtos/{produtoId}/variacoes/{variacaoId}": {
+      "schema": "variacoes",
+      "description": "Variações de um produto"
+    },
+    "/pedidos/{pedidoId}": {
+      "schema": "pedidos",
+      "description": "Coleção de pedidos"
+    },
+    "/banners/{bannerId}": {
+      "schema": "banners",
+      "description": "Coleção de banners rotativos"
+    },
+    "/menus/{menuId}": {
+      "schema": "menus",
+      "description": "Coleção de itens de menu"
+    }
+  }
+}

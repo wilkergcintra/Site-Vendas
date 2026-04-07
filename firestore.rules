@@ -1,0 +1,209 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: usuarios
+// Document ID: {userId}
+// Fields:
+//   - id: string (required)
+//   - nome: string (required, 1-100 chars)
+//   - email: string (required, email format)
+//   - role: string (required, enum: ['cliente', 'admin'])
+//   - criado_em: timestamp (required)
+//
+// Collection: produtos
+// Document ID: {produtoId}
+// Fields:
+//   - id: string (required)
+//   - nome: string (required, 1-200 chars)
+//   - slug: string (required, unique)
+//   - descricao: string (optional, < 5000 chars)
+//   - categoria: string (required)
+//   - genero: string (required, enum: ['masculino', 'feminino', 'unissex'])
+//   - preco: number (required, positive)
+//   - preco_promocional: number (optional, positive)
+//   - peso: number (optional, positive)
+//   - dimensoes: map (optional)
+//   - ativo: bool (required)
+//   - criado_em: timestamp (required)
+//
+// Collection: produtos/{produtoId}/variacoes
+// Document ID: {variacaoId}
+// Fields:
+//   - id: string (required)
+//   - produto_id: string (required)
+//   - tamanho: string (required)
+//   - cor: string (required)
+//   - estoque: int (required, >= 0)
+//   - sku: string (required)
+//
+// Collection: pedidos
+// Document ID: {pedidoId}
+// Fields:
+//   - id: string (required)
+//   - usuario_id: string (required)
+//   - status: string (required, enum: ['aguardando', 'pago', 'enviado', 'entregue', 'cancelado'])
+//   - total: number (required, positive)
+//   - frete_valor: number (optional, positive)
+//   - frete_modalidade: string (optional)
+//   - codigo_rastreamento: string (optional)
+//   - payment_id: string (optional)
+//   - criado_em: timestamp (required)
+//
+// Collection: banners
+// Document ID: {bannerId}
+// Fields:
+//   - id: string (required)
+//   - imagem_url: string (required, URL format)
+//   - link: string (optional)
+//   - titulo: string (optional)
+//   - subtitulo: string (optional)
+//   - ordem: int (required, >= 0)
+//   - ativo: bool (required)
+//   - criado_em: timestamp (required)
+//
+// Collection: menus
+// Document ID: {menuId}
+// Fields:
+//   - id: string (required)
+//   - label: string (required)
+//   - url: string (required)
+//   - parentId: string (optional)
+//   - ordem: int (required, >= 0)
+//   - ativo: bool (required)
+//   - criado_em: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "wilkergcintra@gmail.com" && request.auth.token.email_verified == true)
+        );
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['id', 'nome', 'email', 'role', 'criado_em']) &&
+             data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['cliente', 'admin'] &&
+             data.criado_em is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return hasRequiredFields(['id', 'nome', 'slug', 'preco', 'ativo', 'criado_em']) &&
+             data.nome is string && data.nome.size() > 0 && data.nome.size() <= 200 &&
+             data.preco is number && data.preco > 0 &&
+             data.ativo is bool &&
+             data.criado_em is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return hasRequiredFields(['id', 'usuario_id', 'status', 'total', 'criado_em']) &&
+             data.usuario_id is string &&
+             data.status in ['aguardando', 'pago', 'enviado', 'entregue', 'cancelado'] &&
+             data.total is number && data.total > 0 &&
+             data.criado_em is timestamp;
+    }
+
+    function isValidBanner(data) {
+      return hasRequiredFields(['id', 'imagem_url', 'ordem', 'ativo', 'criado_em']) &&
+             data.imagem_url is string && data.imagem_url.size() > 0 &&
+             data.ordem is int && data.ordem >= 0 &&
+             data.ativo is bool &&
+             data.criado_em is timestamp;
+    }
+
+    function isValidMenu(data) {
+      return hasRequiredFields(['id', 'label', 'url', 'ordem', 'ativo', 'criado_em']) &&
+             data.label is string && data.label.size() > 0 &&
+             data.url is string && data.url.size() > 0 &&
+             data.ordem is int && data.ordem >= 0 &&
+             data.ativo is bool &&
+             data.criado_em is timestamp &&
+             (!('parentId' in data) || data.parentId is string || data.parentId == null);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /test/connection {
+      allow get: if true;
+    }
+
+    match /usuarios/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == 'cliente' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /produtos/{produtoId} {
+      allow get, list: if true; // Publicly readable
+      allow write: if isAdmin();
+      
+      match /variacoes/{variacaoId} {
+        allow get, list: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    match /pedidos/{pedidoId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.usuario_id || isAdmin());
+      allow create: if isAuthenticated() && isValidOrder(request.resource.data) && (request.auth.uid == request.resource.data.usuario_id || isAdmin());
+      allow update: if isAuthenticated() && (
+        (request.auth.uid == resource.data.usuario_id && request.resource.data.status == resource.data.status && isValidOrder(request.resource.data)) ||
+        isAdmin()
+      );
+    }
+
+    match /banners/{bannerId} {
+      allow get, list: if true;
+      allow write: if isAdmin() && (request.method == 'delete' || isValidBanner(request.resource.data));
+    }
+
+    match /menus/{menuId} {
+      allow get, list: if true;
+      allow write: if isAdmin() && (request.method == 'delete' || isValidMenu(request.resource.data));
+    }
+  }
+}
