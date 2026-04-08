@@ -94,6 +94,55 @@
         "criado_em": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "label", "url", "ordem", "ativo"]
+    },
+    "config": {
+      "title": "Configuração da Marca",
+      "description": "Configurações globais da marca e do site",
+      "type": "object",
+      "properties": {
+        "nome": { "type": "string" },
+        "descricao": { "type": "string" },
+        "logo_url": { "type": "string" },
+        "email_contato": { "type": "string" },
+        "telefone_contato": { "type": "string" },
+        "instagram_url": { "type": "string" },
+        "facebook_url": { "type": "string" },
+        "atualizado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nome"]
+    },
+    "categorias": {
+      "title": "Categoria / Catálogo",
+      "description": "Categorias de produtos com capa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "slug": { "type": "string" },
+        "imagem_url": { "type": "string" },
+        "descricao": { "type": "string" },
+        "ordem": { "type": "integer" },
+        "parent_id": { "type": "string", "description": "ID da categoria pai para subcategorias" },
+        "ativo": { "type": "boolean" },
+        "meta_titulo": { "type": "string" },
+        "meta_descricao": { "type": "string" },
+        "criado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nome", "slug", "imagem_url", "ordem", "ativo"]
+    },
+    "atributos": {
+      "title": "Atributo Global",
+      "description": "Tamanhos ou cores globais para sugestão",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tipo": { "type": "string", "enum": ["tamanho", "cor"] },
+        "valor": { "type": "string" },
+        "label": { "type": "string" },
+        "ativo": { "type": "boolean" },
+        "criado_em": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "tipo", "valor", "label", "ativo"]
     }
   },
   "firestore": {
@@ -120,6 +169,18 @@
     "/menus/{menuId}": {
       "schema": "menus",
       "description": "Coleção de itens de menu"
+    },
+    "/config/{configId}": {
+      "schema": "config",
+      "description": "Configurações globais"
+    },
+    "/categorias/{categoriaId}": {
+      "schema": "categorias",
+      "description": "Coleção de categorias"
+    },
+    "/atributos/{atributoId}": {
+      "schema": "atributos",
+      "description": "Coleção de atributos globais"
     }
   }
 }

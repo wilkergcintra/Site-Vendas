@@ -4,14 +4,7 @@ import { Filter, ChevronDown, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { formatCurrency, slugify } from "@/src/lib/utils";
 import { db, handleFirestoreError, OperationType } from "@/src/lib/firebase";
-import { collection, getDocs, query, where } from "firebase/firestore";
-
-const categories = [
-  { id: "tenis", name: "Tênis" },
-  { id: "botas", name: "Botas" },
-  { id: "social", name: "Social" },
-  { id: "sandalias", name: "Sandálias" },
-];
+import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
 
 const genders = [
   { id: "masculino", name: "Masculino" },
@@ -31,6 +24,7 @@ export default function Catalog() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const activeCategory = searchParams.get("categoria");
@@ -38,8 +32,14 @@ export default function Catalog() {
   const activeColor = searchParams.get("cor");
 
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchData = async () => {
       try {
+        // Fetch Categories
+        const categoriesQuery = query(collection(db, "categorias"), where("ativo", "==", true), orderBy("ordem", "asc"));
+        const categoriesSnapshot = await getDocs(categoriesQuery);
+        setCategories(categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+        // Fetch Products
         const q = query(collection(db, "produtos"), where("ativo", "==", true));
         const querySnapshot = await getDocs(q);
         const productsData = querySnapshot.docs.map(doc => ({
@@ -49,18 +49,50 @@ export default function Catalog() {
         }));
         setProducts(productsData);
       } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, "produtos");
+        handleFirestoreError(error, OperationType.LIST, "catalog_data");
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchProducts();
+    fetchData();
   }, []);
+
+  useEffect(() => {
+    if (activeCategory && categories.length > 0) {
+      const category = categories.find(c => c.slug === activeCategory);
+      if (category) {
+        document.title = category.meta_titulo || `${category.nome} | Sua Loja`;
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (metaDesc) {
+          metaDesc.setAttribute("content", category.meta_descricao || category.descricao || "");
+        } else {
+          const newMeta = document.createElement('meta');
+          newMeta.name = "description";
+          newMeta.content = category.meta_descricao || category.descricao || "";
+          document.head.appendChild(newMeta);
+        }
+      }
+    } else {
+      document.title = "Catálogo | Sua Loja";
+    }
+  }, [activeCategory, categories]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
-      if (activeCategory && p.categoria.toLowerCase() !== activeCategory.toLowerCase()) return false;
+      if (activeCategory) {
+        const category = categories.find(c => c.slug === activeCategory);
+        if (!category) return false;
+        
+        // If it's a parent category, show products from it and all its children
+        const childCategories = categories.filter(c => c.parent_id === category.id);
+        const childSlugs = childCategories.map(c => c.slug);
+        
+        const isMatch = p.categoria.toLowerCase() === activeCategory.toLowerCase() || 
+                        childSlugs.some(slug => slug.toLowerCase() === p.categoria.toLowerCase());
+        
+        if (!isMatch) return false;
+      }
       if (activeGender && p.genero.toLowerCase() !== activeGender.toLowerCase() && p.genero.toLowerCase() !== "unissex") return false;
       // Note: Color filtering might need adjustment depending on how colors are stored in Firestore
       // For now, assuming a simple string match
@@ -71,7 +103,7 @@ export default function Catalog() {
       }
       return true;
     });
-  }, [products, activeCategory, activeGender, activeColor]);
+  }, [products, activeCategory, activeGender, activeColor, categories]);
 
   const updateFilter = (key: string, value: string | null) => {
     const newParams = new URLSearchParams(searchParams);
@@ -121,15 +153,29 @@ export default function Catalog() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 py-8">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">Categoria</h3>
-                <div className="space-y-2">
-                  {categories.map((cat) => (
-                    <button
-                      key={cat.id}
-                      onClick={() => updateFilter("categoria", activeCategory === cat.id ? null : cat.id)}
-                      className={`block text-sm ${activeCategory === cat.id ? "font-bold text-black" : "text-gray-500 hover:text-black"}`}
-                    >
-                      {cat.name}
-                    </button>
+                <div className="space-y-4">
+                  {categories.filter(c => !c.parent_id).map((parent) => (
+                    <div key={parent.id} className="space-y-2">
+                      <button
+                        onClick={() => updateFilter("categoria", activeCategory === parent.slug ? null : parent.slug)}
+                        className={`block text-sm uppercase tracking-tighter ${activeCategory === parent.slug ? "font-bold text-black" : "text-gray-500 hover:text-black"}`}
+                      >
+                        {parent.nome}
+                      </button>
+                      
+                      {/* Subcategories */}
+                      <div className="pl-4 space-y-1 border-l border-gray-100 ml-1">
+                        {categories.filter(c => c.parent_id === parent.id).map((child) => (
+                          <button
+                            key={child.id}
+                            onClick={() => updateFilter("categoria", activeCategory === child.slug ? null : child.slug)}
+                            className={`block text-xs ${activeCategory === child.slug ? "font-bold text-black" : "text-gray-400 hover:text-black"}`}
+                          >
+                            {child.nome}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>

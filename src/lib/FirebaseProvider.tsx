@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
-import { auth } from "./firebase";
+import { auth, db } from "./firebase";
+import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
 interface AuthContextType {
   user: FirebaseUser | null;
@@ -14,7 +15,30 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Sync user with Firestore
+        const userRef = doc(db, "usuarios", user.uid);
+        const userDoc = await getDoc(userRef);
+        
+        if (!userDoc.exists()) {
+          await setDoc(userRef, {
+            id: user.uid,
+            nome: user.displayName || "Usuário",
+            email: user.email,
+            foto: user.photoURL,
+            role: user.email === "wilkergcintra@gmail.com" ? "admin" : "cliente",
+            criado_em: serverTimestamp(),
+            atualizado_em: serverTimestamp()
+          });
+        } else {
+          await setDoc(userRef, {
+            nome: user.displayName || userDoc.data().nome,
+            foto: user.photoURL || userDoc.data().foto,
+            atualizado_em: serverTimestamp()
+          }, { merge: true });
+        }
+      }
       setUser(user);
       setLoading(false);
     });

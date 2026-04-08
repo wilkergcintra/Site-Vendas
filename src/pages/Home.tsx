@@ -9,6 +9,7 @@ import { collection, getDocs, query, where, limit, orderBy } from "firebase/fire
 export default function Home() {
   const [products, setProducts] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [currentBanner, setCurrentBanner] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -25,6 +26,19 @@ export default function Home() {
         const bannersSnapshot = await getDocs(bannersQuery);
         const bannersData = bannersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setBanners(bannersData);
+
+        // Fetch Categories (Catalogos)
+        const categoriesQuery = query(
+          collection(db, "categorias"),
+          where("ativo", "==", true),
+          orderBy("ordem", "asc")
+        );
+        const categoriesSnapshot = await getDocs(categoriesQuery);
+        const categoriesData = categoriesSnapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter((cat: any) => !cat.parent_id) // Client-side filter for top-level
+          .slice(0, 6);
+        setCategories(categoriesData);
 
         // Fetch Featured Products
         const productsQuery = query(
@@ -178,39 +192,35 @@ export default function Home() {
         )}
       </section>
 
-      {/* Categories */}
-      <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <Link to="/catalogo?genero=feminino" className="group relative h-[400px] overflow-hidden rounded-2xl bg-gray-100">
-            <img
-              src="https://picsum.photos/seed/female/800/600"
-              alt="Feminino"
-              className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-            <div className="absolute bottom-8 left-8 text-white">
-              <h2 className="text-3xl font-bold uppercase tracking-tighter">Feminino</h2>
-              <p className="mt-2 flex items-center text-sm font-medium uppercase tracking-widest">
-                Explorar <ChevronRight className="ml-1 h-4 w-4" />
-              </p>
+      {/* Dynamic Catalogos Section */}
+      {categories.length > 0 && (
+        <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-end justify-between mb-12">
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-400 mb-2">Coleções</h2>
+              <h3 className="text-4xl font-bold uppercase tracking-tighter">Nossos Catálogos</h3>
             </div>
-          </Link>
-          <Link to="/catalogo?genero=masculino" className="group relative h-[400px] overflow-hidden rounded-2xl bg-gray-100">
-            <img
-              src="https://picsum.photos/seed/male/800/600"
-              alt="Masculino"
-              className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-            <div className="absolute bottom-8 left-8 text-white">
-              <h2 className="text-3xl font-bold uppercase tracking-tighter">Masculino</h2>
-              <p className="mt-2 flex items-center text-sm font-medium uppercase tracking-widest">
-                Explorar <ChevronRight className="ml-1 h-4 w-4" />
-              </p>
-            </div>
-          </Link>
-        </div>
-      </section>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {categories.map((cat) => (
+              <Link key={cat.id} to={`/catalogo?categoria=${cat.slug}`} className="group block">
+                <div className="aspect-square overflow-hidden rounded-2xl bg-gray-100 mb-4 relative">
+                  <img
+                    src={cat.imagem_url}
+                    alt={cat.nome}
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
+                  <div className="absolute inset-0 flex items-center justify-center p-4 text-center">
+                    <h4 className="text-white text-lg font-bold uppercase tracking-tighter leading-tight">{cat.nome}</h4>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Featured Products */}
       <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-20">

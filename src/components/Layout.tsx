@@ -18,19 +18,21 @@ export default function Layout({ children }: LayoutProps) {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [isMenuLoading, setIsMenuLoading] = useState(true);
+  const [brandConfig, setBrandConfig] = useState<any>(null);
   const { items, removeItem, updateQuantity, total } = useCartStore();
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
 
   useEffect(() => {
-    const q = query(
+    // Menus
+    const qMenus = query(
       collection(db, "menus"),
       where("ativo", "==", true),
       orderBy("ordem", "asc")
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeMenus = onSnapshot(qMenus, (snapshot) => {
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setMenuItems(items);
       setIsMenuLoading(false);
@@ -39,7 +41,18 @@ export default function Layout({ children }: LayoutProps) {
       setIsMenuLoading(false);
     });
 
-    return () => unsubscribe();
+    // Brand Config
+    const qConfig = query(collection(db, "config"));
+    const unsubscribeConfig = onSnapshot(qConfig, (snapshot) => {
+      if (!snapshot.empty) {
+        setBrandConfig(snapshot.docs[0].data());
+      }
+    });
+
+    return () => {
+      unsubscribeMenus();
+      unsubscribeConfig();
+    };
   }, []);
 
   const isAdminPath = location.pathname.startsWith("/admin");
@@ -70,8 +83,11 @@ export default function Layout({ children }: LayoutProps) {
               >
                 <Menu className="h-6 w-6" />
               </button>
-              <Link to="/" className="flex items-center space-x-2">
-                <span className="text-xl font-bold tracking-tighter uppercase">Dove Vinha</span>
+              <Link to="/" className="flex items-center space-x-3">
+                {brandConfig?.logo_url && (
+                  <img src={brandConfig.logo_url} alt={brandConfig.nome} className="h-8 w-auto" referrerPolicy="no-referrer" />
+                )}
+                <span className="text-xl font-bold tracking-tighter uppercase">{brandConfig?.nome || "Dove Vinha"}</span>
               </Link>
             </div>
 
@@ -326,9 +342,9 @@ export default function Layout({ children }: LayoutProps) {
         <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="col-span-1 md:col-span-2">
-              <span className="text-xl font-bold tracking-tighter uppercase mb-4 block">Dove Vinha</span>
+              <span className="text-xl font-bold tracking-tighter uppercase mb-4 block">{brandConfig?.nome || "Dove Vinha"}</span>
               <p className="text-gray-500 max-w-xs text-sm leading-relaxed">
-                Qualidade premium, design minimalista e conforto absoluto. Dove Vinha é a escolha para quem busca o equilíbrio entre estilo e durabilidade.
+                {brandConfig?.descricao || "Qualidade premium, design minimalista e conforto absoluto. Dove Vinha é a escolha para quem busca o equilíbrio entre estilo e durabilidade."}
               </p>
             </div>
             <div>
@@ -361,7 +377,7 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           </div>
           <div className="mt-12 border-t border-gray-200 pt-8 flex flex-col md:flex-row justify-between items-center">
-            <p className="text-xs text-gray-400">&copy; 2026 Dove Vinha. Todos os direitos reservados.</p>
+            <p className="text-xs text-gray-400">&copy; {new Date().getFullYear()} {brandConfig?.nome || "Dove Vinha"}. Todos os direitos reservados.</p>
             <div className="flex space-x-6 mt-4 md:mt-0">
               {/* Payment Icons Placeholder */}
               <div className="h-6 w-10 bg-gray-200 rounded"></div>

@@ -121,7 +121,9 @@ service cloud.firestore {
              data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100 &&
              isValidEmail(data.email) &&
              data.role in ['cliente', 'admin'] &&
-             data.criado_em is timestamp;
+             data.criado_em is timestamp &&
+             (!('foto' in data) || data.foto is string || data.foto == null) &&
+             (!('atualizado_em' in data) || data.atualizado_em is timestamp);
     }
 
     function isValidProduct(data) {
@@ -137,7 +139,12 @@ service cloud.firestore {
              data.usuario_id is string &&
              data.status in ['aguardando', 'pago', 'enviado', 'entregue', 'cancelado'] &&
              data.total is number && data.total > 0 &&
-             data.criado_em is timestamp;
+             data.criado_em is timestamp &&
+             (!('cliente' in data) || data.cliente is map) &&
+             (!('endereco' in data) || data.endereco is map) &&
+             (!('itens' in data) || data.itens is list) &&
+             (!('frete_valor' in data) || data.frete_valor is number) &&
+             (!('frete_modalidade' in data) || data.frete_modalidade is string);
     }
 
     function isValidBanner(data) {
@@ -156,6 +163,42 @@ service cloud.firestore {
              data.ativo is bool &&
              data.criado_em is timestamp &&
              (!('parentId' in data) || data.parentId is string || data.parentId == null);
+    }
+
+    function isValidConfig(data) {
+      return hasRequiredFields(['nome']) &&
+             data.nome is string && data.nome.size() > 0 &&
+             (!('descricao' in data) || data.descricao is string) &&
+             (!('logo_url' in data) || data.logo_url is string) &&
+             (!('email_contato' in data) || data.email_contato is string) &&
+             (!('telefone_contato' in data) || data.telefone_contato is string) &&
+             (!('instagram_url' in data) || data.instagram_url is string) &&
+             (!('facebook_url' in data) || data.facebook_url is string) &&
+             (!('atualizado_em' in data) || data.atualizado_em is timestamp);
+    }
+
+    function isValidCategory(data) {
+      return hasRequiredFields(['id', 'nome', 'slug', 'imagem_url', 'ordem', 'ativo', 'criado_em']) &&
+             data.id is string &&
+             data.nome is string && data.nome.size() > 0 &&
+             data.slug is string && data.slug.size() > 0 &&
+             data.imagem_url is string && data.imagem_url.size() > 0 &&
+             data.ordem is int && data.ordem >= 0 &&
+             data.ativo is bool &&
+             data.criado_em is timestamp &&
+             (!('parent_id' in data) || data.parent_id is string || data.parent_id == null) &&
+             (!('meta_titulo' in data) || data.meta_titulo is string) &&
+             (!('meta_descricao' in data) || data.meta_descricao is string);
+    }
+
+    function isValidAttribute(data) {
+      return hasRequiredFields(['id', 'tipo', 'valor', 'label', 'ativo']) &&
+             data.id is string &&
+             data.tipo in ['tamanho', 'cor'] &&
+             data.valor is string && data.valor.size() > 0 &&
+             data.label is string && data.label.size() > 0 &&
+             data.ativo is bool &&
+             (request.method == 'create' ? data.criado_em is timestamp : true);
     }
 
     // ===============================================================
@@ -204,6 +247,22 @@ service cloud.firestore {
     match /menus/{menuId} {
       allow get, list: if true;
       allow write: if isAdmin() && (request.method == 'delete' || isValidMenu(request.resource.data));
+    }
+
+    match /config/{configId} {
+      allow get: if true;
+      allow list: if true;
+      allow write: if isAdmin() && isValidConfig(request.resource.data);
+    }
+
+    match /categorias/{categoriaId} {
+      allow get, list: if true;
+      allow write: if isAdmin() && (request.method == 'delete' || isValidCategory(request.resource.data));
+    }
+
+    match /atributos/{atributoId} {
+      allow get, list: if true;
+      allow write: if isAdmin() && (request.method == 'delete' || isValidAttribute(request.resource.data));
     }
   }
 }

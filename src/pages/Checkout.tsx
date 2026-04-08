@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronRight, CreditCard, Truck, MapPin, CheckCircle2, ArrowLeft } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useCartStore } from "@/src/store/cartStore";
 import { formatCurrency, cn } from "@/src/lib/utils";
+import { useAuth } from "@/src/lib/FirebaseProvider";
+import { db, auth, handleFirestoreError, OperationType } from "@/src/lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 const steps = [
   { id: "address", name: "Endereço", icon: MapPin },
@@ -13,9 +16,11 @@ const steps = [
 
 export default function Checkout() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { items, total, clearCart } = useCartStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -30,6 +35,17 @@ export default function Checkout() {
     estado: "",
     frete: "pac",
   });
+
+  useEffect(() => {
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        email: user.email || "",
+        nome: user.displayName?.split(' ')[0] || "",
+        sobrenome: user.displayName?.split(' ').slice(1).join(' ') || "",
+      }));
+    }
+  }, [user]);
 
   const [isCEPLoading, setIsCEPLoading] = useState(false);
   const [cepError, setCEPError] = useState("");
@@ -81,13 +97,54 @@ export default function Checkout() {
     );
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Process payment mock
-      setIsFinished(true);
-      clearCart();
+      setIsSubmitting(true);
+      try {
+        const orderTotal = total() + (formData.frete === "pac" ? 25.50 : 45.90);
+        const userId = user?.uid || `guest_${Date.now()}`;
+
+        await addDoc(collection(db, "pedidos"), {
+          usuario_id: userId,
+          status: "aguardando",
+          total: orderTotal,
+          frete_valor: formData.frete === "pac" ? 25.50 : 45.90,
+          frete_modalidade: formData.frete,
+          endereco: {
+            logradouro: formData.logradouro,
+            numero: formData.numero,
+            complemento: formData.complemento,
+            bairro: formData.bairro,
+            cidade: formData.cidade,
+            estado: formData.estado,
+            cep: formData.cep
+          },
+          cliente: {
+            nome: `${formData.nome} ${formData.sobrenome}`,
+            email: formData.email
+          },
+          itens: items.map(item => ({
+            produto_id: item.produto_id,
+            variacao_id: item.variacao_id,
+            nome: item.nome,
+            quantidade: item.quantidade,
+            preco: item.preco,
+            tamanho: item.tamanho,
+            cor: item.cor,
+            imagem: item.imagem
+          })),
+          criado_em: serverTimestamp()
+        });
+
+        setIsFinished(true);
+        clearCart();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, "pedidos");
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -382,9 +439,10 @@ export default function Checkout() {
               </button>
               <button
                 onClick={handleNext}
-                className="flex-1 rounded-full bg-black py-4 text-sm font-bold text-white uppercase tracking-widest hover:bg-gray-800 transition-colors"
+                disabled={isSubmitting}
+                className="flex-1 rounded-full bg-black py-4 text-sm font-bold text-white uppercase tracking-widest hover:bg-gray-800 transition-colors disabled:bg-gray-400"
               >
-                {currentStep === steps.length - 1 ? "Finalizar Pedido" : "Continuar"}
+                {isSubmitting ? "Processando..." : currentStep === steps.length - 1 ? "Finalizar Pedido" : "Continuar"}
               </button>
             </div>
           </div>
