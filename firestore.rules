@@ -94,9 +94,9 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (
+          (request.auth.token.email == "wilkergcintra@gmail.com" && request.auth.token.get('email_verified', false) == true) ||
           (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role == 'admin') ||
-          (request.auth.token.email == "wilkergcintra@gmail.com" && request.auth.token.email_verified == true)
+           get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.get('role', 'user') == 'admin')
         );
     }
 
@@ -122,8 +122,22 @@ service cloud.firestore {
              isValidEmail(data.email) &&
              data.role in ['cliente', 'admin'] &&
              data.criado_em is timestamp &&
+             (!('telefone' in data) || data.telefone is string) &&
+             (!('cpf' in data) || data.cpf is string) &&
              (!('foto' in data) || data.foto is string || data.foto == null) &&
              (!('atualizado_em' in data) || data.atualizado_em is timestamp);
+    }
+
+    function isValidEndereco(data) {
+      return hasRequiredFields(['id', 'cep', 'logradouro', 'numero', 'bairro', 'cidade', 'estado']) &&
+             data.cep is string && data.cep.size() >= 8 &&
+             data.logradouro is string && data.logradouro.size() > 0 &&
+             data.numero is string && data.numero.size() > 0 &&
+             data.bairro is string && data.bairro.size() > 0 &&
+             data.cidade is string && data.cidade.size() > 0 &&
+             data.estado is string && data.estado.size() == 2 &&
+             (!('complemento' in data) || data.complemento is string) &&
+             (!('principal' in data) || data.principal is bool);
     }
 
     function isValidProduct(data) {
@@ -135,11 +149,12 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return hasRequiredFields(['id', 'usuario_id', 'status', 'total', 'criado_em']) &&
+      return hasRequiredFields(['usuario_id', 'status', 'total', 'criado_em']) &&
              data.usuario_id is string &&
              data.status in ['aguardando', 'pago', 'enviado', 'entregue', 'cancelado'] &&
              data.total is number && data.total > 0 &&
              data.criado_em is timestamp &&
+             (!('metodo_pagamento' in data) || data.metodo_pagamento in ['mercado_pago', 'pix']) &&
              (!('cliente' in data) || data.cliente is map) &&
              (!('endereco' in data) || data.endereco is map) &&
              (!('itens' in data) || data.itens is list) &&
@@ -174,6 +189,10 @@ service cloud.firestore {
              (!('telefone_contato' in data) || data.telefone_contato is string) &&
              (!('instagram_url' in data) || data.instagram_url is string) &&
              (!('facebook_url' in data) || data.facebook_url is string) &&
+             (!('pix_chave' in data) || data.pix_chave is string) &&
+             (!('pix_qr_code_url' in data) || data.pix_qr_code_url is string) &&
+             (!('pix_instrucoes' in data) || data.pix_instrucoes is string) &&
+             (!('mercado_pago_public_key' in data) || data.mercado_pago_public_key is string) &&
              (!('atualizado_em' in data) || data.atualizado_em is timestamp);
     }
 
@@ -218,6 +237,11 @@ service cloud.firestore {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == 'cliente' || isAdmin());
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == resource.data.role || isAdmin());
+
+      match /enderecos/{enderecoId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId) && isValidEndereco(request.resource.data);
+      }
     }
 
     match /produtos/{produtoId} {
@@ -258,6 +282,10 @@ service cloud.firestore {
     match /categorias/{categoriaId} {
       allow get, list: if true;
       allow write: if isAdmin() && (request.method == 'delete' || isValidCategory(request.resource.data));
+    }
+
+    match /config_private/{docId} {
+      allow read, write: if isAdmin();
     }
 
     match /atributos/{atributoId} {

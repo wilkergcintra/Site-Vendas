@@ -8,10 +8,29 @@
         "id": { "type": "string" },
         "nome": { "type": "string" },
         "email": { "type": "string", "format": "email" },
+        "telefone": { "type": "string" },
+        "cpf": { "type": "string" },
         "role": { "type": "string", "enum": ["cliente", "admin"] },
         "criado_em": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "nome", "email", "role"]
+    },
+    "enderecos": {
+      "title": "Endereço",
+      "description": "Endereço de entrega do usuário",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cep": { "type": "string" },
+        "logradouro": { "type": "string" },
+        "numero": { "type": "string" },
+        "complemento": { "type": "string" },
+        "bairro": { "type": "string" },
+        "cidade": { "type": "string" },
+        "estado": { "type": "string" },
+        "principal": { "type": "boolean" }
+      },
+      "required": ["id", "cep", "logradouro", "numero", "bairro", "cidade", "estado"]
     },
     "produtos": {
       "title": "Produto",
@@ -56,13 +75,14 @@
         "usuario_id": { "type": "string" },
         "status": { "type": "string", "enum": ["aguardando", "pago", "enviado", "entregue", "cancelado"] },
         "total": { "type": "number" },
+        "metodo_pagamento": { "type": "string", "enum": ["mercado_pago", "pix"] },
         "frete_valor": { "type": "number" },
         "frete_modalidade": { "type": "string" },
         "codigo_rastreamento": { "type": "string" },
         "payment_id": { "type": "string" },
         "criado_em": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "usuario_id", "status", "total"]
+      "required": ["usuario_id", "status", "total"]
     },
     "banners": {
       "title": "Banner",
@@ -107,9 +127,22 @@
         "telefone_contato": { "type": "string" },
         "instagram_url": { "type": "string" },
         "facebook_url": { "type": "string" },
+        "pix_chave": { "type": "string" },
+        "pix_qr_code_url": { "type": "string" },
+        "pix_instrucoes": { "type": "string" },
+        "mercado_pago_public_key": { "type": "string" },
         "atualizado_em": { "type": "string", "format": "date-time" }
       },
       "required": ["nome"]
+    },
+    "config_private": {
+      "title": "Configuração Privada",
+      "description": "Chaves e tokens sensíveis",
+      "type": "object",
+      "properties": {
+        "mercado_pago_access_token": { "type": "string" },
+        "atualizado_em": { "type": "string", "format": "date-time" }
+      }
     },
     "categorias": {
       "title": "Categoria / Catálogo",
@@ -150,6 +183,10 @@
       "schema": "usuarios",
       "description": "Coleção de usuários"
     },
+    "/usuarios/{userId}/enderecos/{enderecoId}": {
+      "schema": "enderecos",
+      "description": "Endereços do usuário"
+    },
     "/produtos/{produtoId}": {
       "schema": "produtos",
       "description": "Coleção de produtos"
@@ -173,6 +210,10 @@
     "/config/{configId}": {
       "schema": "config",
       "description": "Configurações globais"
+    },
+    "/config_private/{docId}": {
+      "schema": "config_private",
+      "description": "Configurações sensíveis (apenas admin)"
     },
     "/categorias/{categoriaId}": {
       "schema": "categorias",

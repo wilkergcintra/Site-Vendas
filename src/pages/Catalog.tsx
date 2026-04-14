@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { Filter, ChevronDown, X } from "lucide-react";
+import { Filter, ChevronDown, X, Search } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { formatCurrency, slugify } from "@/src/lib/utils";
 import { db, handleFirestoreError, OperationType } from "@/src/lib/firebase";
@@ -30,6 +30,7 @@ export default function Catalog() {
   const activeCategory = searchParams.get("categoria");
   const activeGender = searchParams.get("genero");
   const activeColor = searchParams.get("cor");
+  const activeSearch = searchParams.get("q");
 
   useEffect(() => {
     const fetchData = async () => {
@@ -73,13 +74,23 @@ export default function Catalog() {
           document.head.appendChild(newMeta);
         }
       }
+    } else if (activeSearch) {
+      document.title = `Busca: ${activeSearch} | Sua Loja`;
     } else {
       document.title = "Catálogo | Sua Loja";
     }
-  }, [activeCategory, categories]);
+  }, [activeCategory, categories, activeSearch]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      if (activeSearch) {
+        const searchLower = activeSearch.toLowerCase();
+        const matchesName = p.nome.toLowerCase().includes(searchLower);
+        const matchesCategory = p.categoria.toLowerCase().includes(searchLower);
+        const matchesDescription = p.descricao?.toLowerCase().includes(searchLower);
+        
+        if (!matchesName && !matchesCategory && !matchesDescription) return false;
+      }
       if (activeCategory) {
         const category = categories.find(c => c.slug === activeCategory);
         if (!category) return false;
@@ -103,7 +114,7 @@ export default function Catalog() {
       }
       return true;
     });
-  }, [products, activeCategory, activeGender, activeColor, categories]);
+  }, [products, activeCategory, activeGender, activeColor, categories, activeSearch]);
 
   const updateFilter = (key: string, value: string | null) => {
     const newParams = new URLSearchParams(searchParams);
@@ -123,7 +134,9 @@ export default function Catalog() {
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 space-y-4 md:space-y-0">
         <div>
-          <h1 className="text-4xl font-bold uppercase tracking-tighter">Coleção</h1>
+          <h1 className="text-4xl font-bold uppercase tracking-tighter">
+            {activeSearch ? `Busca: ${activeSearch}` : "Coleção"}
+          </h1>
           <p className="text-gray-500 text-sm mt-2 uppercase tracking-widest">
             {isLoading ? "Carregando..." : `${filteredProducts.length} ${filteredProducts.length === 1 ? "Produto" : "Produtos"} encontrados`}
           </p>
@@ -282,8 +295,13 @@ export default function Catalog() {
       )}
 
       {!isLoading && filteredProducts.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 space-y-4">
-          <p className="text-gray-500">Nenhum produto encontrado com os filtros selecionados.</p>
+        <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
+          <Search className="h-12 w-12 text-gray-200 mb-2" />
+          <p className="text-gray-500 max-w-xs">
+            {activeSearch 
+              ? `Não encontramos nenhum produto para "${activeSearch}". Tente usar termos mais genéricos.`
+              : "Nenhum produto encontrado com os filtros selecionados."}
+          </p>
           <button onClick={clearFilters} className="text-sm font-bold uppercase tracking-widest underline">
             Limpar Filtros
           </button>

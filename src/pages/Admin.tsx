@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, ShoppingCart, Package, Users, Star, Settings, LogOut, Plus, Search, Filter, MoreHorizontal, ChevronRight, TrendingUp, DollarSign, PackageCheck, AlertCircle, Trash2, X, Image as ImageIcon, Save, ArrowLeft, Calendar, ArrowUp, ArrowDown, Menu } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Package, Users, Star, Settings, LogOut, Plus, Search, Filter, MoreHorizontal, ChevronRight, TrendingUp, DollarSign, PackageCheck, AlertCircle, Trash2, X, Image as ImageIcon, Save, ArrowLeft, Calendar, ArrowUp, ArrowDown, Menu, CreditCard } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn, formatCurrency, slugify } from "@/src/lib/utils";
 import { useAuth } from "@/src/lib/FirebaseProvider";
 import { auth, db, OperationType, handleFirestoreError } from "@/src/lib/firebase";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, doc, setDoc, writeBatch, deleteDoc, where, onSnapshot, updateDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, doc, setDoc, writeBatch, deleteDoc, where, onSnapshot, updateDoc, getDoc } from "firebase/firestore";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -68,6 +68,11 @@ const brandSchema = z.object({
   telefone_contato: z.string().optional(),
   instagram_url: z.string().url("URL inválida").or(z.literal("")).optional(),
   facebook_url: z.string().url("URL inválida").or(z.literal("")).optional(),
+  pix_chave: z.string().optional(),
+  pix_qr_code_url: z.string().url("URL inválida").or(z.literal("")).optional(),
+  pix_instrucoes: z.string().optional(),
+  mercado_pago_public_key: z.string().optional(),
+  mercado_pago_access_token: z.string().optional(),
 });
 
 type BrandFormData = z.infer<typeof brandSchema>;
@@ -342,6 +347,16 @@ export default function Admin() {
               <Settings className="h-5 w-5" />
               <span>Marca</span>
             </Link>
+            <Link
+              to="/admin/pagamentos"
+              className={cn(
+                "flex items-center space-x-3 px-6 py-4 rounded-2xl text-sm font-bold uppercase tracking-widest transition-colors",
+                isActive("pagamentos") ? "bg-black text-white" : "text-gray-500 hover:bg-gray-50 hover:text-black"
+              )}
+            >
+              <CreditCard className="h-5 w-5" />
+              <span>Pagamentos</span>
+            </Link>
           </nav>
         </div>
 
@@ -365,10 +380,111 @@ export default function Admin() {
           <Route path="banners" element={<BannersManagement />} />
           <Route path="menus" element={<MenusManagement />} />
           <Route path="marca" element={<BrandManagement />} />
-          <Route path="clientes" element={<div className="text-2xl font-bold uppercase tracking-tighter">Gestão de Clientes</div>} />
+          <Route path="pagamentos" element={<PaymentsManagement />} />
+          <Route path="clientes" element={<CustomersManagement />} />
           <Route path="avaliacoes" element={<div className="text-2xl font-bold uppercase tracking-tighter">Gestão de Avaliações</div>} />
         </Routes>
       </main>
+    </div>
+  );
+}
+
+function CustomersManagement() {
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      try {
+        const q = query(collection(db, "usuarios"), orderBy("criado_em", "desc"));
+        const querySnapshot = await getDocs(q);
+        const customersData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setCustomers(customersData);
+      } catch (error) {
+        console.error("Error fetching customers:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchCustomers();
+  }, []);
+
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c => 
+      c.nome?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      c.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [customers, searchTerm]);
+
+  return (
+    <div className="space-y-12">
+      <div className="flex items-end justify-between">
+        <div>
+          <h2 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-400 mb-2">Gestão</h2>
+          <h3 className="text-4xl font-bold uppercase tracking-tighter">Clientes</h3>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden">
+        <div className="p-8 border-b border-gray-100">
+          <div className="relative max-w-md w-full">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="Buscar clientes por nome ou e-mail..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full rounded-full border border-gray-100 pl-12 pr-6 py-3 text-sm focus:border-black focus:outline-none bg-gray-50" 
+            />
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="p-20 text-center text-gray-400">Carregando clientes...</div>
+        ) : filteredCustomers.length === 0 ? (
+          <div className="p-20 text-center text-gray-400">Nenhum cliente encontrado.</div>
+        ) : (
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-gray-50 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                <th className="px-8 py-4">Cliente</th>
+                <th className="px-8 py-4">E-mail</th>
+                <th className="px-8 py-4">Telefone</th>
+                <th className="px-8 py-4">CPF</th>
+                <th className="px-8 py-4">Data de Cadastro</th>
+                <th className="px-8 py-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filteredCustomers.map((customer) => (
+                <tr key={customer.id} className="hover:bg-gray-50/50 transition-colors group">
+                  <td className="px-8 py-6">
+                    <div className="flex items-center space-x-4">
+                      <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-xs uppercase">
+                        {customer.nome?.split(' ').map((n: string) => n[0]).join('') || "?"}
+                      </div>
+                      <span className="text-sm font-bold text-gray-900">{customer.nome || "Sem nome"}</span>
+                    </div>
+                  </td>
+                  <td className="px-8 py-6 text-sm text-gray-500">{customer.email}</td>
+                  <td className="px-8 py-6 text-sm text-gray-500">{customer.telefone || "—"}</td>
+                  <td className="px-8 py-6 text-sm text-gray-500">{customer.cpf || "—"}</td>
+                  <td className="px-8 py-6 text-sm text-gray-500">
+                    {customer.criado_em?.toDate ? customer.criado_em.toDate().toLocaleDateString('pt-BR') : 
+                     customer.criado_em ? new Date(customer.criado_em).toLocaleDateString('pt-BR') : "N/A"}
+                  </td>
+                  <td className="px-8 py-6 text-right">
+                    <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-lg transition-colors">
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
@@ -403,7 +519,7 @@ function Dashboard() {
         const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
         // Fetch all users (customers)
-        const usersQuery = query(collection(db, "usuarios"), where("role", "==", "cliente"));
+        const usersQuery = query(collection(db, "usuarios"));
         const usersSnapshot = await getDocs(usersQuery);
         const allCustomers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
@@ -446,7 +562,7 @@ function Dashboard() {
           const customer = allCustomers.find((c: any) => c.id === order.usuario_id);
           return {
             ...order,
-            customerName: customer?.nome || "Cliente Desconhecido",
+            customerName: customer?.nome || customer?.email || "Cliente Desconhecido",
             customerEmail: customer?.email || "N/A"
           };
         });
@@ -1457,7 +1573,7 @@ function OrdersManagement() {
 
         const enrichedOrders = ordersData.map((order: any) => ({
           ...order,
-          customerName: usersData[order.usuario_id]?.nome || "Cliente Desconhecido",
+          customerName: usersData[order.usuario_id]?.nome || usersData[order.usuario_id]?.email || "Cliente Desconhecido",
           customerEmail: usersData[order.usuario_id]?.email || "N/A"
         }));
 
@@ -1725,6 +1841,13 @@ function AttributeForm({ attribute, onCancel, onSuccess }: { attribute?: any, on
   });
 
   const tipo = watch("tipo");
+  const label = watch("label");
+
+  useEffect(() => {
+    if (tipo === "tamanho") {
+      setValue("valor", label || "");
+    }
+  }, [label, tipo, setValue]);
 
   const onSubmit = async (data: AttributeFormData) => {
     setIsSubmitting(true);
@@ -1795,23 +1918,23 @@ function AttributeForm({ attribute, onCancel, onSuccess }: { attribute?: any, on
             {errors.label && <p className="text-red-500 text-[10px] mt-1">{errors.label.message}</p>}
           </div>
 
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-              {tipo === "cor" ? "Valor Hexadecimal (Ex: #000000)" : "Valor (Geralmente igual ao rótulo)"}
-            </label>
-            <div className="flex space-x-2">
-              <input {...register("valor")} className="flex-1 rounded-xl border border-gray-100 px-4 py-3 text-sm focus:border-black focus:outline-none bg-gray-50" />
-              {tipo === "cor" && (
+          {tipo === "cor" && (
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+                Cor Visual
+              </label>
+              <div className="flex items-center space-x-4">
                 <input 
                   type="color" 
                   value={watch("valor").startsWith("#") ? watch("valor") : "#000000"}
                   onChange={(e) => setValue("valor", e.target.value)}
                   className="h-12 w-12 rounded-xl border border-gray-100 p-1 bg-gray-50 cursor-pointer" 
                 />
-              )}
+                <span className="text-sm font-mono text-gray-400">{watch("valor")}</span>
+              </div>
+              {errors.valor && <p className="text-red-500 text-[10px] mt-1">{errors.valor.message}</p>}
             </div>
-            {errors.valor && <p className="text-red-500 text-[10px] mt-1">{errors.valor.message}</p>}
-          </div>
+          )}
 
           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
             <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Atributo Ativo</span>
@@ -2504,7 +2627,20 @@ function BrandManagement() {
         if (!querySnapshot.empty) {
           const docData = querySnapshot.docs[0];
           setConfigId(docData.id);
-          reset(docData.data() as BrandFormData);
+          const publicData = docData.data();
+          
+          // Fetch private config
+          let privateData = {};
+          try {
+            const privateSnap = await getDoc(doc(db, "config_private", "mercadopago"));
+            if (privateSnap.exists()) {
+              privateData = privateSnap.data();
+            }
+          } catch (e) {
+            console.warn("Could not fetch private config (likely permission denied for non-admin or first run)");
+          }
+
+          reset({ ...publicData, ...privateData } as BrandFormData);
         }
       } catch (error) {
         console.error("Error fetching brand config:", error);
@@ -2518,11 +2654,22 @@ function BrandManagement() {
   const onSubmit = async (data: BrandFormData) => {
     setIsSubmitting(true);
     try {
+      const { mercado_pago_access_token, ...publicData } = data;
+
+      // Save public config
       const configRef = configId ? doc(db, "config", configId) : doc(collection(db, "config"));
       await setDoc(configRef, {
-        ...data,
+        ...publicData,
         atualizado_em: serverTimestamp(),
       }, { merge: true });
+
+      // Save private config
+      if (mercado_pago_access_token) {
+        await setDoc(doc(db, "config_private", "mercadopago"), {
+          mercado_pago_access_token,
+          atualizado_em: serverTimestamp(),
+        }, { merge: true });
+      }
       
       if (!configId) setConfigId(configRef.id);
       alert("Configurações da marca salvas com sucesso!");
@@ -2606,6 +2753,138 @@ function BrandManagement() {
             {isSubmitting ? "Salvando..." : "Salvar Configurações"}
           </button>
         </div>
+      </form>
+    </div>
+  );
+}
+
+function PaymentsManagement() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [configId, setConfigId] = useState<string | null>(null);
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<BrandFormData>({
+    resolver: zodResolver(brandSchema),
+  });
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const q = query(collection(db, "config"));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const docData = querySnapshot.docs[0];
+          setConfigId(docData.id);
+          const publicData = docData.data();
+          
+          // Fetch private config
+          let privateData = {};
+          try {
+            const privateSnap = await getDoc(doc(db, "config_private", "mercadopago"));
+            if (privateSnap.exists()) {
+              privateData = privateSnap.data();
+            }
+          } catch (e) {
+            console.warn("Could not fetch private config");
+          }
+
+          reset({ ...publicData, ...privateData } as BrandFormData);
+        }
+      } catch (error) {
+        console.error("Error fetching brand config:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchConfig();
+  }, [reset]);
+
+  const onSubmit = async (data: BrandFormData) => {
+    setIsSubmitting(true);
+    try {
+      const { mercado_pago_access_token, ...publicData } = data;
+
+      // Save public config (only payment related fields)
+      const configRef = configId ? doc(db, "config", configId) : doc(collection(db, "config"));
+      await setDoc(configRef, {
+        mercado_pago_public_key: publicData.mercado_pago_public_key,
+        pix_chave: publicData.pix_chave,
+        pix_qr_code_url: publicData.pix_qr_code_url,
+        pix_instrucoes: publicData.pix_instrucoes,
+        atualizado_em: serverTimestamp(),
+      }, { merge: true });
+
+      // Save private config
+      if (mercado_pago_access_token) {
+        await setDoc(doc(db, "config_private", "mercadopago"), {
+          mercado_pago_access_token,
+          atualizado_em: serverTimestamp(),
+        }, { merge: true });
+      }
+      
+      if (!configId) setConfigId(configRef.id);
+      alert("Configurações de pagamento salvas com sucesso!");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, "config");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isLoading) {
+    return <div className="p-20 text-center text-gray-400">Carregando configurações...</div>;
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-12">
+      <div>
+        <h2 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-400 mb-2">Configurações</h2>
+        <h3 className="text-4xl font-bold uppercase tracking-tighter">Pagamentos</h3>
+      </div>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+        <div className="bg-white p-8 rounded-3xl border border-gray-100 space-y-6">
+          <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">Mercado Pago</h4>
+          <div className="grid grid-cols-1 gap-6">
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Public Key</label>
+              <input {...register("mercado_pago_public_key")} placeholder="APP_USR-..." className="w-full rounded-xl border border-gray-100 px-4 py-3 text-sm focus:border-black focus:outline-none bg-gray-50" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Access Token (Privado)</label>
+              <input {...register("mercado_pago_access_token")} type="password" placeholder="APP_USR-..." className="w-full rounded-xl border border-gray-100 px-4 py-3 text-sm focus:border-black focus:outline-none bg-gray-50" />
+              <p className="text-[9px] text-gray-400 mt-1">Este campo é seguro e não será exibido publicamente.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-8 rounded-3xl border border-gray-100 space-y-6">
+          <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">Pix</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Chave Pix</label>
+              <input {...register("pix_chave")} placeholder="E-mail, CPF, CNPJ ou Chave Aleatória" className="w-full rounded-xl border border-gray-100 px-4 py-3 text-sm focus:border-black focus:outline-none bg-gray-50" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">URL do QR Code Pix (Imagem)</label>
+              <input {...register("pix_qr_code_url")} placeholder="https://..." className="w-full rounded-xl border border-gray-100 px-4 py-3 text-sm focus:border-black focus:outline-none bg-gray-50" />
+              {errors.pix_qr_code_url && <p className="text-red-500 text-[10px] mt-1">{errors.pix_qr_code_url.message}</p>}
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Instruções do Pix</label>
+              <textarea {...register("pix_instrucoes")} rows={3} placeholder="Ex: Envie o comprovante para nosso WhatsApp após o pagamento." className="w-full rounded-xl border border-gray-100 px-4 py-3 text-sm focus:border-black focus:outline-none bg-gray-50" />
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-full rounded-full bg-black py-4 text-sm font-bold text-white uppercase tracking-widest hover:bg-gray-800 transition-colors disabled:bg-gray-400 flex items-center justify-center"
+        >
+          <Save className="mr-2 h-5 w-5" />
+          {isSubmitting ? "Salvando..." : "Salvar Configurações de Pagamento"}
+        </button>
       </form>
     </div>
   );

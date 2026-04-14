@@ -16,6 +16,8 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [isMenuLoading, setIsMenuLoading] = useState(true);
   const [brandConfig, setBrandConfig] = useState<any>(null);
@@ -23,6 +25,20 @@ export default function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+
+  useEffect(() => {
+    // Close search when location changes
+    setIsSearchOpen(false);
+    setSearchQuery("");
+  }, [location]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/catalogo?q=${encodeURIComponent(searchQuery.trim())}`);
+      setIsSearchOpen(false);
+    }
+  };
 
   useEffect(() => {
     // Menus
@@ -133,9 +149,34 @@ export default function Layout({ children }: LayoutProps) {
             </div>
 
             <div className="flex items-center space-x-4">
-              <button className="p-2 text-gray-400 hover:text-black">
-                <Search className="h-5 w-5" />
-              </button>
+              <div className="relative flex items-center">
+                <AnimatePresence>
+                  {isSearchOpen && (
+                    <motion.form
+                      initial={{ width: 0, opacity: 0 }}
+                      animate={{ width: 240, opacity: 1 }}
+                      exit={{ width: 0, opacity: 0 }}
+                      onSubmit={handleSearch}
+                      className="absolute right-0 flex items-center"
+                    >
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Buscar produtos..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full rounded-full border border-gray-100 bg-gray-50 px-4 py-2 text-xs focus:border-black focus:bg-white focus:outline-none transition-all pr-10"
+                      />
+                    </motion.form>
+                  )}
+                </AnimatePresence>
+                <button 
+                  onClick={() => setIsSearchOpen(!isSearchOpen)}
+                  className={`relative z-10 p-2 transition-colors ${isSearchOpen ? 'text-black' : 'text-gray-400 hover:text-black'}`}
+                >
+                  {isSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
+                </button>
+              </div>
               <Link to="/cliente" className="p-2 text-gray-400 hover:text-black flex items-center space-x-2">
                 {user ? (
                   <div className="h-8 w-8 rounded-full bg-black text-white flex items-center justify-center text-[10px] font-bold">

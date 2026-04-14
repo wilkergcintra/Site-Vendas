@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 import { auth, db } from "./firebase";
-import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, getDoc, query, collection, where, getDocs } from "firebase/firestore";
 
 interface AuthContextType {
   user: FirebaseUser | null;
@@ -16,31 +16,59 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // Sync user with Firestore
-        const userRef = doc(db, "usuarios", user.uid);
-        const userDoc = await getDoc(userRef);
-        
-        if (!userDoc.exists()) {
-          await setDoc(userRef, {
-            id: user.uid,
-            nome: user.displayName || "Usuário",
-            email: user.email,
-            foto: user.photoURL,
-            role: user.email === "wilkergcintra@gmail.com" ? "admin" : "cliente",
-            criado_em: serverTimestamp(),
-            atualizado_em: serverTimestamp()
-          });
-        } else {
-          await setDoc(userRef, {
-            nome: user.displayName || userDoc.data().nome,
-            foto: user.photoURL || userDoc.data().foto,
-            atualizado_em: serverTimestamp()
-          }, { merge: true });
+      try {
+        if (user) {
+          // Sync user with Firestore
+          const userRef = doc(db, "usuarios", user.uid);
+          let userDoc = await getDoc(userRef);
+          
+          // Fallback: Check if a document with this email already exists under a different ID
+          if (!userDoc.exists() && user.email) {
+            const q = query(collection(db, "usuarios"), where("email", "==", user.email));
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+              // Found an existing document with this email! 
+              // We should probably migrate it to the new UID or at least use its data.
+              const existingDoc = querySnapshot.docs[0];
+              const existingData = existingDoc.data();
+              
+              // Create the new document with the data from the old one
+              await setDoc(userRef, {
+                ...existingData,
+                id: user.uid, // Ensure ID matches new UID
+                atualizado_em: serverTimestamp()
+              });
+              
+              // Refresh userDoc reference
+              userDoc = await getDoc(userRef);
+            }
+          }
+
+          if (!userDoc.exists()) {
+            await setDoc(userRef, {
+              id: user.uid,
+              nome: user.displayName || "Usuário",
+              email: user.email || "",
+              foto: user.photoURL || null,
+              role: user.email === "wilkergcintra@gmail.com" ? "admin" : "cliente",
+              criado_em: serverTimestamp(),
+              atualizado_em: serverTimestamp()
+            });
+          } else {
+            const existingData = userDoc.data();
+            await setDoc(userRef, {
+              nome: user.displayName || existingData.nome || "Usuário",
+              foto: user.photoURL || existingData.foto || null,
+              atualizado_em: serverTimestamp()
+            }, { merge: true });
+          }
         }
+      } catch (error) {
+        console.error("Error syncing user with Firestore:", error);
+      } finally {
+        setUser(user);
+        setLoading(false);
       }
-      setUser(user);
-      setLoading(false);
     });
 
     return () => unsubscribe();
