@@ -13,7 +13,7 @@ import {
   signInWithEmailAndPassword,
   updateProfile
 } from "firebase/auth";
-import { doc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, getDoc, deleteDoc, updateDoc, onSnapshot, orderBy } from "firebase/firestore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -439,27 +439,49 @@ function OrdersList() {
   const { user } = useAuth();
 
   useEffect(() => {
-    const fetchOrders = async () => {
-      if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    // Busca pedidos reais do Firestore filtrando pelo usuario_id do usuário logado
+    const q = query(
+      collection(db, "pedidos"), 
+      where("usuario_id", "==", user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const ordersData = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      }));
+      
+      // Ordena por data decrescente no cliente para evitar necessidade de índice composto
+      setOrders(ordersData.sort((a: any, b: any) => {
+        const dateA = a.criado_em?.toMillis ? a.criado_em.toMillis() : 0;
+        const dateB = b.criado_em?.toMillis ? b.criado_em.toMillis() : 0;
+        return dateB - dateA;
+      }));
+      setLoading(false);
+    }, (error) => {
+      console.error("Erro ao buscar pedidos:", error);
       try {
-        const q = query(collection(db, "pedidos"), where("usuario_id", "==", user.uid));
-        const snapshot = await getDocs(q);
-        const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setOrders(ordersData.sort((a: any, b: any) => {
-          const dateA = a.criado_em?.toDate ? a.criado_em.toDate() : 0;
-          const dateB = b.criado_em?.toDate ? b.criado_em.toDate() : 0;
-          return dateB - dateA;
-        }));
-      } catch (error) {
-        console.error("Error fetching orders:", error);
-      } finally {
-        setLoading(false);
+        handleFirestoreError(error, OperationType.LIST, "pedidos");
+      } catch (e) {
+        // Erro já tratado
       }
-    };
-    fetchOrders();
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
-  if (loading) return <div className="text-center py-12 text-gray-400 animate-pulse">Carregando pedidos...</div>;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-24 space-y-4">
+      <div className="h-8 w-8 border-4 border-black border-t-transparent rounded-full animate-spin" />
+      <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Carregando seus pedidos...</p>
+    </div>
+  );
 
   return (
     <div className="space-y-8">
@@ -745,10 +767,8 @@ function ProfileEdit({ user }: { user: any }) {
         atualizado_em: serverTimestamp()
       }, { merge: true });
 
-      alert("Dados atualizados com sucesso!");
     } catch (error) {
       console.error("Error saving profile:", error);
-      alert("Erro ao salvar os dados. Tente novamente.");
     } finally {
       setSaving(false);
     }
@@ -842,20 +862,32 @@ function AddressesList() {
     }
   });
 
-  const fetchAddresses = async () => {
-    if (!user) return;
-    try {
-      const snapshot = await getDocs(collection(db, "usuarios", user.uid, "enderecos"));
-      setAddresses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (error) {
-      console.error("Error fetching addresses:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchAddresses();
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const q = query(
+      collection(db, "usuarios", user.uid, "enderecos")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const addrs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Ordena por data decrescente no cliente
+      setAddresses(addrs.sort((a: any, b: any) => {
+        const dateA = a.criado_em?.toMillis ? a.criado_em.toMillis() : 0;
+        const dateB = b.criado_em?.toMillis ? b.criado_em.toMillis() : 0;
+        return dateB - dateA;
+      }));
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching addresses:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
   const handleEdit = (addr: any) => {
@@ -872,14 +904,13 @@ function AddressesList() {
   };
 
   const handleDelete = async (addrId: string) => {
-    if (!user || !confirm("Tem certeza que deseja excluir este endereço?")) return;
+    if (!user) return;
+    // Note: window.confirm may not work in some iframe environments
     try {
       await deleteDoc(doc(db, "usuarios", user.uid, "enderecos", addrId));
       setAddresses(prev => prev.filter(a => a.id !== addrId));
-      alert("Endereço excluído com sucesso!");
     } catch (error) {
       console.error("Error deleting address:", error);
-      alert("Erro ao excluir endereço.");
     }
   };
 
@@ -901,23 +932,19 @@ function AddressesList() {
           ...data,
           atualizado_em: serverTimestamp()
         });
-        alert("Endereço atualizado com sucesso!");
       } else {
         await addDoc(collection(db, "usuarios", user.uid, "enderecos"), {
           ...data,
           id: crypto.randomUUID(),
           criado_em: serverTimestamp()
         });
-        alert("Endereço adicionado com sucesso!");
       }
       
       setIsModalOpen(false);
       setEditingAddress(null);
       reset();
-      fetchAddresses();
     } catch (error) {
       console.error("Error saving address:", error);
-      alert("Erro ao salvar endereço.");
     }
   };
 

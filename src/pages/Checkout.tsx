@@ -6,7 +6,7 @@ import { useCartStore } from "@/src/store/cartStore";
 import { formatCurrency, cn } from "@/src/lib/utils";
 import { useAuth } from "@/src/lib/FirebaseProvider";
 import { db } from "@/src/lib/firebase";
-import { collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, serverTimestamp, doc, getDoc } from "firebase/firestore";
 
 declare global {
   interface Window { MercadoPago: any; }
@@ -19,83 +19,34 @@ const steps = [
 ];
 
 // Busca credenciais salvas pelo admin no Firestore
-async function buscarCredenciaisMP(): Promise<{ public_key: string; access_token: string }> {
-  const snap = await getDoc(doc(db, "config_pagamentos", "principal"));
-  if (!snap.exists()) {
-    throw new Error("Configurações de pagamento não encontradas. Configure no painel Admin → Pagamentos.");
+// → Public key: coleção "config" (1º doc), campo "mercado_pago_public_key"
+async function buscarPublicKeyMP(): Promise<string> {
+  const configSnap = await getDocs(collection(db, "config"));
+  if (configSnap.empty) {
+    throw new Error("Configurações da loja não encontradas. Acesse Admin → Pagamentos e salve as credenciais.");
   }
-  const data = snap.data();
-  if (!data.mp_public_key || !data.mp_access_token) {
-    throw new Error("Public Key ou Access Token do Mercado Pago não configurados. Acesse Admin → Pagamentos.");
-  }
-  return { public_key: data.mp_public_key, access_token: data.mp_access_token };
+  return configSnap.docs[0].data().mercado_pago_public_key || "";
 }
 
-// Cria preferência diretamente na API do Mercado Pago (chamada do browser)
+// Cria preferência via backend
 async function criarPreferencia(payload: {
   itens: any[];
   frete: { valor: number; modalidade: string };
   cliente: { nome: string; email: string };
   endereco: any;
   pedido_id: string;
-  app_url: string;
-  access_token: string;
 }) {
-  const accessToken = payload.access_token;
-
-  if (!accessToken) {
-    throw new Error("Access Token do Mercado Pago não configurado.");
-  }
-
-  const items = payload.itens.map((item: any) => ({
-    id: item.produto_id,
-    title: item.nome,
-    quantity: item.quantidade,
-    unit_price: Number(item.preco),
-    currency_id: "BRL",
-  }));
-
-  // Frete como item
-  if (payload.frete.valor > 0) {
-    items.push({
-      id: "frete",
-      title: payload.frete.modalidade === "pac" ? "Frete - Correios PAC" : "Frete - Correios SEDEX",
-      quantity: 1,
-      unit_price: Number(payload.frete.valor),
-      currency_id: "BRL",
-    });
-  }
-
-  const body = {
-    items,
-    payer: {
-      name: payload.cliente.nome.split(" ")[0] || "",
-      surname: payload.cliente.nome.split(" ").slice(1).join(" ") || "",
-      email: payload.cliente.email,
-    },
-    back_urls: {
-      success: `${payload.app_url}/checkout/sucesso`,
-      failure: `${payload.app_url}/checkout/falha`,
-      pending: `${payload.app_url}/checkout/pendente`,
-    },
-    auto_return: "approved",
-    external_reference: payload.pedido_id,
-    payment_methods: { installments: 12 },
-    statement_descriptor: "MINHA LOJA",
-  };
-
-  const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
+  const response = await fetch("/api/pagamento/criar-preferencia", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const err = await response.json();
-    throw new Error(err?.message || `Erro MP: ${response.status}`);
+    throw new Error(err?.error || err?.message || `Erro ao criar preferência: ${response.status}`);
   }
 
   return response.json();
@@ -136,8 +87,10 @@ export default function Checkout() {
     { id: "sedex", nome: "Correios SEDEX", valor: 45.90, prazo: "2 a 3 dias úteis" },
   ]);
   const [isLoadingShipping, setIsLoadingShipping] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
+  const [showSavedAddresses, setShowSavedAddresses] = useState(false);
 
-  // Preenche dados do usuário logado
+  // Preenche dados do usuário logado e busca endereços
   useEffect(() => {
     if (user) {
       setFormData((prev) => ({
@@ -146,8 +99,49 @@ export default function Checkout() {
         nome: user.displayName?.split(" ")[0] || "",
         sobrenome: user.displayName?.split(" ").slice(1).join(" ") || "",
       }));
+
+      // Busca endereços salvos
+      const fetchAddresses = async () => {
+        try {
+          const snap = await getDocs(collection(db, "usuarios", user.uid, "enderecos"));
+          const addrs = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+          setSavedAddresses(addrs);
+          
+          // Se tiver um endereço principal, já preenche
+          const principal = addrs.find(a => a.principal);
+          if (principal) {
+            setFormData(prev => ({
+              ...prev,
+              cep: principal.cep,
+              logradouro: principal.logradouro,
+              numero: principal.numero,
+              complemento: principal.complemento || "",
+              bairro: principal.bairro,
+              cidade: principal.cidade,
+              estado: principal.estado,
+            }));
+          }
+        } catch (err) {
+          console.error("Erro ao buscar endereços:", err);
+        }
+      };
+      fetchAddresses();
     }
   }, [user]);
+
+  const selectAddress = (addr: any) => {
+    setFormData(prev => ({
+      ...prev,
+      cep: addr.cep,
+      logradouro: addr.logradouro,
+      numero: addr.numero,
+      complemento: addr.complemento || "",
+      bairro: addr.bairro,
+      cidade: addr.cidade,
+      estado: addr.estado,
+    }));
+    setShowSavedAddresses(false);
+  };
 
   // Carrega SDK do Mercado Pago via CDN
   useEffect(() => {
@@ -226,8 +220,9 @@ export default function Checkout() {
     setError(null);
 
     try {
-      // 0. Busca credenciais do Firestore (salvas pelo admin)
-      const credenciais = await buscarCredenciaisMP();
+      // 0. Busca public_key do Firestore (salva pelo admin)
+      const publicKey = await buscarPublicKeyMP();
+      setMpPublicKey(publicKey);
 
       const userId = user?.uid || `guest_${Date.now()}`;
       const orderTotal = total() + formData.frete_valor;
@@ -267,21 +262,16 @@ export default function Checkout() {
 
       setPedidoId(pedidoRef.id);
 
-      // 2. Cria preferência diretamente na API do Mercado Pago (do browser)
-      const appUrl = window.location.origin;
+      // 2. Cria preferência via backend
       const pref = await criarPreferencia({
         pedido_id: pedidoRef.id,
         itens: items.map((i) => ({ ...i })),
         frete: { valor: formData.frete_valor, modalidade: formData.frete },
         cliente: { nome: `${formData.nome} ${formData.sobrenome}`.trim(), email: formData.email },
         endereco: { logradouro: formData.logradouro, numero: formData.numero, cep: formData.cep },
-        app_url: appUrl,
-        access_token: credenciais.access_token,
       });
 
-      // Guarda public_key para o Brick usar
-      setMpPublicKey(credenciais.public_key);
-      setPreferenceId(pref.id);
+      setPreferenceId(pref.preference_id);
     } catch (err: any) {
       setError(err?.message || "Erro ao iniciar pagamento. Verifique suas credenciais.");
     } finally {
@@ -453,7 +443,34 @@ export default function Checkout() {
               {/* ETAPA 0 — Endereço */}
               {currentStep === 0 && (
                 <motion.div key="address" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                  <h2 className="text-xl font-bold uppercase tracking-tighter">Dados de Entrega</h2>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold uppercase tracking-tighter">Dados de Entrega</h2>
+                    {user && savedAddresses.length > 0 && (
+                      <button 
+                        onClick={() => setShowSavedAddresses(!showSavedAddresses)}
+                        className="text-[10px] font-bold uppercase tracking-widest text-black underline"
+                      >
+                        {showSavedAddresses ? "Fechar endereços" : "Usar endereço salvo"}
+                      </button>
+                    )}
+                  </div>
+
+                  {showSavedAddresses && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                      {savedAddresses.map((addr) => (
+                        <button
+                          key={addr.id}
+                          onClick={() => selectAddress(addr)}
+                          className="text-left p-4 rounded-2xl border border-gray-200 hover:border-black transition-all bg-white group"
+                        >
+                          <p className="text-xs font-bold group-hover:text-black">{addr.logradouro}, {addr.numero}</p>
+                          <p className="text-[10px] text-gray-500">{addr.bairro}, {addr.cidade} - {addr.estado}</p>
+                          <p className="text-[10px] text-gray-400 font-mono">{addr.cep}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">E-mail</label>

@@ -2821,6 +2821,13 @@ function PaymentsManagement() {
           atualizado_em: serverTimestamp(),
         }, { merge: true });
       }
+
+      // Sync with config_pagamentos/principal for Checkout.tsx (Client-side MP integration)
+      await setDoc(doc(db, "config_pagamentos", "principal"), {
+        mp_public_key: publicData.mercado_pago_public_key || "",
+        mp_access_token: mercado_pago_access_token || "",
+        atualizado_em: serverTimestamp(),
+      }, { merge: true });
       
       if (!configId) setConfigId(configRef.id);
       alert("Configurações de pagamento salvas com sucesso!");

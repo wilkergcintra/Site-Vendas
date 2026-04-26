@@ -4,17 +4,82 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
+import admin from "firebase-admin";
+import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
+import { initializeApp as initializeClientApp } from "firebase/app";
+import { getFirestore as getClientFirestore, doc as clientDoc, getDoc as getClientDoc, collection as clientCollection, getDocs as getClientDocs } from "firebase/firestore";
+import fs from "fs";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Mercado Pago client
-const mpClient = new MercadoPagoConfig({
-  accessToken: process.env.MP_ACCESS_TOKEN || "",
-  options: { timeout: 5000 },
-});
+// Initialize Firebase Admin (for webhooks/updates)
+let adminDb: any;
+const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
+let firebaseConfig: any = null;
+
+if (fs.existsSync(firebaseConfigPath)) {
+  firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
+  if (admin.apps.length === 0) {
+    admin.initializeApp({
+      projectId: firebaseConfig.projectId,
+    });
+  }
+  adminDb = getAdminFirestore(firebaseConfig.firestoreDatabaseId || "(default)");
+} else {
+  if (admin.apps.length === 0) admin.initializeApp();
+  adminDb = getAdminFirestore();
+}
+
+// Initialize Firebase Client (for fetching public config on server)
+const clientApp = firebaseConfig ? initializeClientApp(firebaseConfig) : null;
+const clientDb = clientApp ? getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId) : null;
+
+// Helper to get MP Client with latest token
+async function getMPClient() {
+  let accessToken = process.env.MP_ACCESS_TOKEN;
+
+  // Try to fetch from Firestore using Client SDK (since config_pagamentos is public)
+  if (clientDb) {
+    try {
+      const snap = await getClientDoc(clientDoc(clientDb, "config_pagamentos", "principal"));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data?.mp_access_token) {
+          accessToken = data.mp_access_token;
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao buscar access token via Client SDK:", error);
+    }
+  }
+
+  // Fallback to Admin SDK if Client SDK failed (might work if permissions are fixed)
+  if (!accessToken && adminDb) {
+    try {
+      const configSnap = await adminDb.collection("config_private").doc("mercadopago").get();
+      if (configSnap.exists) {
+        const data = configSnap.data();
+        if (data?.mercado_pago_access_token) {
+          accessToken = data.mercado_pago_access_token;
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao buscar access token via Admin SDK:", error);
+    }
+  }
+
+  if (!accessToken) {
+    throw new Error("Mercado Pago Access Token não encontrado no Firestore (config_pagamentos/principal) nem no ambiente. Por favor, configure no painel Admin > Pagamentos e clique em Salvar.");
+  }
+
+  return new MercadoPagoConfig({
+    accessToken: accessToken,
+    options: { timeout: 10000 },
+  });
+}
 
 async function startServer() {
   const app = express();
@@ -40,6 +105,7 @@ async function startServer() {
         return res.status(400).json({ error: "Itens do pedido são obrigatórios." });
       }
 
+      const mpClient = await getMPClient();
       const preference = new Preference(mpClient);
 
       const items = itens.map((item: any) => ({
@@ -77,7 +143,7 @@ async function startServer() {
             address: endereco
               ? {
                   street_name: endereco.logradouro,
-                  street_number: Number(endereco.numero) || 0,
+                  street_number: String(endereco.numero || "0"),
                   zip_code: endereco.cep,
                 }
               : undefined,
@@ -118,6 +184,7 @@ async function startServer() {
   app.get("/api/pagamento/:payment_id", async (req, res) => {
     try {
       const { payment_id } = req.params;
+      const mpClient = await getMPClient();
       const payment = new Payment(mpClient);
       const result = await payment.get({ id: payment_id });
 
@@ -145,6 +212,7 @@ async function startServer() {
       console.log("Webhook MP recebido:", { type, data });
 
       if (type === "payment" && data?.id) {
+        const mpClient = await getMPClient();
         const payment = new Payment(mpClient);
         const result = await payment.get({ id: data.id });
 
@@ -158,22 +226,23 @@ async function startServer() {
           approved: "pago",
           pending: "aguardando",
           in_process: "aguardando",
+          authorized: "pago",
           rejected: "cancelado",
           cancelled: "cancelado",
           refunded: "cancelado",
+          charged_back: "cancelado",
         };
 
         const novoStatus = statusMap[status || ""] || "aguardando";
 
-        // TODO: Atualizar o Firestore aqui
-        // Exemplo (adicione o import do Firebase Admin SDK para usar no servidor):
-        // await admin.firestore().doc(`pedidos/${pedidoId}`).update({
-        //   status: novoStatus,
-        //   payment_id: String(result.id),
-        //   atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
-        // });
-
-        console.log(`Pedido ${pedidoId} deve ser atualizado para: ${novoStatus}`);
+        if (pedidoId && adminDb) {
+          await adminDb.collection("pedidos").doc(pedidoId).update({
+            status: novoStatus,
+            payment_id: String(result.id),
+            atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`Pedido ${pedidoId} atualizado para: ${novoStatus}`);
+        }
       }
 
       res.status(200).send("OK");

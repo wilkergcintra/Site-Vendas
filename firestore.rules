@@ -234,7 +234,8 @@ service cloud.firestore {
     }
 
     match /usuarios/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin() || (isAuthenticated() && (request.auth.token.email == resource.data.email || request.auth.uid == userId));
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == 'cliente' || isAdmin());
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == resource.data.role || isAdmin());
 
@@ -255,8 +256,8 @@ service cloud.firestore {
     }
 
     match /pedidos/{pedidoId} {
-      allow read: if isAuthenticated() && (request.auth.uid == resource.data.usuario_id || isAdmin());
-      allow create: if isAuthenticated() && isValidOrder(request.resource.data) && (request.auth.uid == request.resource.data.usuario_id || isAdmin());
+      allow read: if (isAuthenticated() && (request.auth.uid == resource.data.usuario_id || isAdmin())) || (!isAuthenticated() && request.method == 'get');
+      allow create: if isValidOrder(request.resource.data) && (isAuthenticated() ? request.auth.uid == request.resource.data.usuario_id : request.resource.data.usuario_id.matches("^guest_.*"));
       allow update: if isAuthenticated() && (
         (request.auth.uid == resource.data.usuario_id && request.resource.data.status == resource.data.status && isValidOrder(request.resource.data)) ||
         isAdmin()
@@ -282,6 +283,11 @@ service cloud.firestore {
     match /categorias/{categoriaId} {
       allow get, list: if true;
       allow write: if isAdmin() && (request.method == 'delete' || isValidCategory(request.resource.data));
+    }
+
+    match /config_pagamentos/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /config_private/{docId} {
